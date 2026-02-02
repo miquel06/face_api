@@ -385,7 +385,7 @@ export default function FaceCam() {
             SYSTEM SECURE // TIER 1
           </div>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-100 to-gray-500" style={{ textShadow: "0 0 40px rgba(0,255,255,0.3)" }}>
-            QUANTUM<span className="text-cyan-500">.</span>ID
+            MIKI<span className="text-cyan-500">.</span>FACEAPI
           </h1>
           <p className="text-gray-500 font-mono text-sm tracking-widest">BIOMETRIC NEURAL INTERFACE v4.0</p>
         </header>
