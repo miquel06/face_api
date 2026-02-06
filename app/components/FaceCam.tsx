@@ -100,6 +100,7 @@ export default function FaceCam() {
   const [loginData, setLoginData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<string>("00:00:00");
+  const [bgOffset, setBgOffset] = useState({ x: 0, y: 0 });
 
   const THRESHOLD = 0.55;
 
@@ -197,6 +198,15 @@ export default function FaceCam() {
       const landmarks = detection.landmarks;
       const points = landmarks.positions;
 
+      const drawPolyline = (pts: faceapi.Point[], close = false) => {
+        if (pts.length === 0) return;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        if (close) ctx.closePath();
+        ctx.stroke();
+      };
+
       // Draw Connections (Jaw)
       ctx.strokeStyle = "#00ffff";
       ctx.fillStyle = "rgba(0, 255, 255, 0.2)";
@@ -207,6 +217,40 @@ export default function FaceCam() {
       ctx.moveTo(jaw[0].x, jaw[0].y);
       jaw.forEach(p => ctx.lineTo(p.x, p.y));
       ctx.stroke();
+
+      // Mouth line
+      ctx.strokeStyle = "rgba(0, 255, 255, 0.9)";
+      ctx.lineWidth = 2;
+      const mouth = landmarks.getMouth();
+      if (mouth.length >= 7) {
+        const left = mouth[0];
+        const right = mouth[6];
+        const midY = (left.y + right.y) / 2;
+        ctx.beginPath();
+        ctx.moveTo(left.x, midY);
+        ctx.lineTo(right.x, midY);
+        ctx.stroke();
+      }
+
+      // Eye contours
+      ctx.strokeStyle = "rgba(0, 255, 255, 0.7)";
+      ctx.lineWidth = 1.5;
+      drawPolyline(landmarks.getLeftEye(), true);
+      drawPolyline(landmarks.getRightEye(), true);
+
+      // Extra mark (nose bridge + tip)
+      const nose = landmarks.getNose();
+      if (nose.length >= 7) {
+        ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(nose[0].x, nose[0].y);
+        ctx.lineTo(nose[3].x, nose[3].y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(nose[6].x, nose[6].y, 2, 0, 2 * Math.PI);
+        ctx.fill();
+      }
 
       // Draw Points with Glow
       ctx.shadowBlur = 10;
@@ -351,30 +395,62 @@ export default function FaceCam() {
   };
   
   return (
-    <div className="min-h-screen bg-black text-white font-sans overflow-hidden selection:bg-cyan-500 selection:text-black relative">
-      
-      {/* --- BACKGROUND EFFECTS (Quantum Aurora) --- */}
+    <div
+      className="min-h-screen bg-black text-white font-sans overflow-hidden selection:bg-cyan-500 selection:text-black relative"
+      onMouseMove={(e) => {
+        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width - 0.5;
+        const y = (e.clientY - rect.top) / rect.height - 0.5;
+        setBgOffset({ x, y });
+      }}
+      style={
+        {
+          ["--bg-x" as any]: `${bgOffset.x * 20}px`,
+          ["--bg-y" as any]: `${bgOffset.y * 20}px`,
+        } as any
+      }
+    >
+      {/* --- BACKGROUND EFFECTS (Hacker Triangles) --- */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         {/* 1. Base Oscura */}
         <div className="absolute inset-0 bg-black" />
 
-        {/* 2. Plasma Dinámico */}
-        <div className={`absolute top-[-50%] left-[-50%] w-[200%] h-[200%] opacity-40 mix-blend-screen filter blur-[100px] animate-aurora-1 ${isDetecting ? 'brightness-150 saturate-150 speed-up' : ''}`} 
-             style={{ background: 'radial-gradient(circle, rgba(67,56,202,1) 0%, rgba(0,0,0,0) 70%)' }}></div>
-        
-        <div className={`absolute bottom-[-50%] right-[-50%] w-[200%] h-[200%] opacity-40 mix-blend-screen filter blur-[100px] animate-aurora-2 ${isDetecting ? 'brightness-150 saturate-150 speed-up' : ''}`}
-             style={{ background: 'radial-gradient(circle, rgba(192,38,211,1) 0%, rgba(0,0,0,0) 70%)' }}></div>
+        {/* 2. Triangulos verdes (capa lejana) */}
+        <div
+          className="absolute inset-0 opacity-60"
+          style={{
+            backgroundImage:
+              "url(\"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cpolygon points='90,20 160,150 20,150' fill='none' stroke='rgba(0,255,100,0.7)' stroke-width='1.2'/%3E%3Cpolygon points='40,30 70,90 10,90' fill='none' stroke='rgba(0,255,100,0.45)' stroke-width='1'/%3E%3Cpolygon points='140,40 170,100 110,100' fill='none' stroke='rgba(0,255,100,0.45)' stroke-width='1'/%3E%3C/svg%3E\")",
+            backgroundSize: "180px 180px",
+            animation: "triScroll 12s linear infinite",
+            filter: "drop-shadow(0 0 6px rgba(0,255,120,0.6))",
+          }}
+        />
 
-        <div className={`absolute top-[20%] right-[20%] w-[100%] h-[100%] opacity-30 mix-blend-screen filter blur-[80px] animate-pulse-slow ${isDetecting ? 'text-cyan-500' : 'text-blue-900'}`}>
-             <div className="w-full h-full bg-current rounded-full blur-3xl opacity-50"></div>
-        </div>
+        {/* 3. Triangulos verdes (capa cercana) */}
+        <div
+          className="absolute inset-0 opacity-75"
+          style={{
+            backgroundImage:
+              "url(\"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon points='60,10 110,100 10,100' fill='none' stroke='rgba(0,255,100,0.85)' stroke-width='1.2'/%3E%3Cpolygon points='90,20 115,70 65,70' fill='none' stroke='rgba(0,255,100,0.55)' stroke-width='1'/%3E%3C/svg%3E\")",
+            backgroundSize: "120px 120px",
+            animation: "triScroll 8s linear infinite reverse",
+            filter: "drop-shadow(0 0 8px rgba(0,255,120,0.7))",
+          }}
+        />
 
-        {/* 3. Reacción Neural */}
-        <div className={`absolute inset-0 bg-gradient-to-t from-cyan-900/20 via-transparent to-purple-900/20 transition-all duration-1000 ${isDetecting ? 'opacity-100 animate-pulse-fast' : 'opacity-20'}`} />
+        {/* 4. Scanlines sutiles */}
+        <div
+          className="absolute inset-0 opacity-15"
+          style={{
+            backgroundImage:
+              "url(\"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='8' viewBox='0 0 4 8'%3E%3Cpath d='M0 1 H4' stroke='rgba(0,255,140,0.25)' stroke-width='1'/%3E%3C/svg%3E\")",
+            backgroundSize: "4px 8px",
+          }}
+        />
 
-        {/* 4. Textura y Rejilla */}
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay"></div>
-        <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px)', backgroundSize: '60px 60px' }}></div>
+        {/* 5. Textura */}
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-12 brightness-100 contrast-150 mix-blend-overlay"></div>
       </div>
 
       <main className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
@@ -391,7 +467,7 @@ export default function FaceCam() {
         </header>
 
         <div className="relative group">
-          <div className={`absolute -inset-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-cyan-500 rounded-2xl opacity-75 blur transition duration-1000 group-hover:duration-200 ${status === 'scanning' ? 'animate-spin-slow opacity-100' : 'opacity-30'}`}></div>
+          <div className={`absolute -inset-1 bg-gradient-to-r from-green-400 via-white to-green-400 rounded-2xl opacity-90 blur-md transition duration-1000 group-hover:duration-200 ${status === 'scanning' ? 'animate-spin-slow opacity-100' : 'opacity-50'}`}></div>
           
           <div className="relative w-full max-w-2xl aspect-video bg-black rounded-xl overflow-hidden border border-white/10 shadow-2xl">
             
@@ -618,6 +694,19 @@ export default function FaceCam() {
         .animate-pulse-fast { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         
         .speed-up { animation-duration: 5s !important; }
+
+        /* Futuristic background pulse */
+        @keyframes bgPulse {
+          0%, 100% { opacity: 0.2; }
+          50% { opacity: 0.35; }
+        }
+        .bg-pulse { animation: bgPulse 2s ease-in-out infinite; }
+
+        /* Hacker triangles movement */
+        @keyframes triScroll {
+          0% { transform: translate3d(0, 0, 0); }
+          100% { transform: translate3d(-180px, 180px, 0); }
+        }
       `}</style>
     </div>
   );
