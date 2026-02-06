@@ -100,7 +100,17 @@ export default function FaceCam() {
   const [loginData, setLoginData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<string>("00:00:00");
-  const [bgOffset, setBgOffset] = useState({ x: 0, y: 0 });
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [gameTick, setGameTick] = useState(0);
+
+  const shipRef = useRef({ x: 12, y: 35 });
+  const keysRef = useRef<Set<string>>(new Set());
+  const meteorsRef = useRef<{ id: number; x: number; y: number; speed: number; size: number }[]>([]);
+  const lasersRef = useRef<{ id: number; x: number; y: number }[]>([]);
+  const lastSpawnRef = useRef(0);
+  const lastFireRef = useRef(0);
+  const lastFrameRef = useRef(0);
+  const idRef = useRef(1);
 
   const THRESHOLD = 0.55;
 
@@ -133,6 +143,75 @@ export default function FaceCam() {
       clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showWelcome) return;
+
+    const loop = (t: number) => {
+      if (!lastFrameRef.current) lastFrameRef.current = t;
+      const dt = Math.min((t - lastFrameRef.current) / 1000, 0.05);
+      lastFrameRef.current = t;
+
+      if (t - lastSpawnRef.current > 120) {
+        lastSpawnRef.current = t;
+        meteorsRef.current.push({
+          id: idRef.current++,
+          x: Math.random() * 100,
+          y: -10,
+          speed: 18 + Math.random() * 25,
+          size: 6 + Math.random() * 8,
+        });
+      }
+
+      if (t - lastFireRef.current > 180) {
+        lastFireRef.current = t;
+        lasersRef.current.push({
+          id: idRef.current++,
+          x: shipRef.current.x + 6,
+          y: shipRef.current.y + 1,
+        });
+      }
+
+      meteorsRef.current.forEach(m => { m.y += m.speed * dt; });
+      meteorsRef.current = meteorsRef.current.filter(m => m.y < 120);
+
+      lasersRef.current.forEach(l => { l.x += 80 * dt; });
+      lasersRef.current = lasersRef.current.filter(l => l.x < 120);
+
+      // Collisions
+      const meteors = meteorsRef.current;
+      const lasers = lasersRef.current;
+      const remainingM: typeof meteors = [];
+      const remainingL: typeof lasers = [];
+
+      for (const m of meteors) {
+        let hit = false;
+        for (const l of lasers) {
+          const dx = m.x - l.x;
+          const dy = m.y - l.y;
+          if (dx * dx + dy * dy < 20) {
+            hit = true;
+            l.x = 9999;
+          }
+        }
+        if (!hit) remainingM.push(m);
+      }
+      for (const l of lasers) {
+        if (l.x < 2000) remainingL.push(l);
+      }
+      meteorsRef.current = remainingM;
+      lasersRef.current = remainingL;
+
+      setGameTick(v => (v + 1) % 100000);
+      if (showWelcome) requestAnimationFrame(loop);
+    };
+
+    const raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      lastFrameRef.current = 0;
+    };
+  }, [showWelcome]);
 
   // 2. Load FaceAPI Models
   const loadModels = async () => {
@@ -208,8 +287,8 @@ export default function FaceCam() {
       };
 
       // Draw Connections (Jaw)
-      ctx.strokeStyle = "#00ffff";
-      ctx.fillStyle = "rgba(0, 255, 255, 0.2)";
+      ctx.strokeStyle = "#00ff66";
+      ctx.fillStyle = "rgba(0, 255, 102, 0.2)";
       ctx.lineWidth = 1;
       
       ctx.beginPath();
@@ -219,7 +298,7 @@ export default function FaceCam() {
       ctx.stroke();
 
       // Mouth line
-      ctx.strokeStyle = "rgba(0, 255, 255, 0.9)";
+      ctx.strokeStyle = "rgba(0, 255, 102, 0.9)";
       ctx.lineWidth = 2;
       const mouth = landmarks.getMouth();
       if (mouth.length >= 7) {
@@ -233,7 +312,7 @@ export default function FaceCam() {
       }
 
       // Eye contours
-      ctx.strokeStyle = "rgba(0, 255, 255, 0.7)";
+      ctx.strokeStyle = "rgba(0, 255, 102, 0.7)";
       ctx.lineWidth = 1.5;
       drawPolyline(landmarks.getLeftEye(), true);
       drawPolyline(landmarks.getRightEye(), true);
@@ -241,7 +320,7 @@ export default function FaceCam() {
       // Extra mark (nose bridge + tip)
       const nose = landmarks.getNose();
       if (nose.length >= 7) {
-        ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
+        ctx.strokeStyle = "rgba(0, 255, 102, 0.8)";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(nose[0].x, nose[0].y);
@@ -254,7 +333,7 @@ export default function FaceCam() {
 
       // Draw Points with Glow
       ctx.shadowBlur = 10;
-      ctx.shadowColor = "#00ffff";
+      ctx.shadowColor = "#00ff66";
       
       points.forEach((p, i) => {
         if (i % 2 === 0) {
@@ -395,21 +474,57 @@ export default function FaceCam() {
   };
   
   return (
-    <div
-      className="min-h-screen bg-black text-white font-sans overflow-hidden selection:bg-cyan-500 selection:text-black relative"
-      onMouseMove={(e) => {
-        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-        const x = (e.clientX - rect.left) / rect.width - 0.5;
-        const y = (e.clientY - rect.top) / rect.height - 0.5;
-        setBgOffset({ x, y });
-      }}
-      style={
-        {
-          ["--bg-x" as any]: `${bgOffset.x * 20}px`,
-          ["--bg-y" as any]: `${bgOffset.y * 20}px`,
-        } as any
-      }
-    >
+    <div className="min-h-screen bg-black text-white font-sans overflow-hidden selection:bg-green-500 selection:text-black relative">
+      {showWelcome && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onMouseMove={(e) => {
+            const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            shipRef.current.x = Math.max(4, Math.min(90, x));
+            shipRef.current.y = Math.max(8, Math.min(85, y));
+          }}
+        >
+          <div className="absolute inset-0 bg-black" />
+          {/* Scene: nave + meteoritos (controlable) */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0" data-tick={gameTick}>
+              {meteorsRef.current.map(m => (
+                <div
+                  key={m.id}
+                  className="meteor"
+                  style={{ left: `${m.x}%`, top: `${m.y}%`, width: m.size, height: Math.max(4, m.size * 0.5) }}
+                />
+              ))}
+            </div>
+            <div
+              className="eye"
+              style={{ left: `${shipRef.current.x}%`, top: `${shipRef.current.y}%` }}
+            >
+              <div className="eye-core" />
+              <div className="eye-pupil" />
+            </div>
+            {lasersRef.current.map(l => (
+              <div key={l.id} className="laser" style={{ left: `${l.x}%`, top: `${l.y}%` }} />
+            ))}
+          </div>
+          <div className="relative z-10 text-center px-6">
+            <div className="text-green-400 font-mono text-xs tracking-widest mb-3">ACCESS GATE // ONLINE</div>
+            <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-white mb-4">
+              BIENVENIDO A <span className="text-green-400">MIKIFACE</span>
+            </h1>
+            <p className="text-white/70 font-mono text-sm mb-8">Inicia la interfaz biométrica para continuar.</p>
+            <button
+              onClick={() => { setShowWelcome(false); setIsDetecting(true); }}
+              className="px-8 py-3 bg-white text-black font-bold rounded-full hover:bg-green-400 transition-all duration-300 hover:shadow-[0_0_30px_rgba(0,255,120,0.5)]"
+            >
+              ENTRAR
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* --- BACKGROUND EFFECTS (Hacker Triangles) --- */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         {/* 1. Base Oscura */}
@@ -456,14 +571,14 @@ export default function FaceCam() {
       <main className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
         
         <header className="mb-8 text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-900/20 border border-cyan-500/30 text-cyan-400 text-xs tracking-widest font-mono mb-4 animate-pulse">
-            <div className="w-2 h-2 bg-cyan-400 rounded-full"></div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-900/20 border border-green-500/30 text-green-400 text-xs tracking-widest font-mono mb-4 animate-pulse">
+            <div className="w-2 h-2 bg-green-400 rounded-full"></div>
             SYSTEM SECURE // TIER 1
           </div>
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-100 to-gray-500" style={{ textShadow: "0 0 40px rgba(0,255,255,0.3)" }}>
-            MIKI<span className="text-cyan-500">.</span>FACEAPI
+          <h1 className="text-5xl md:text-7xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-green-100 to-white" style={{ textShadow: "0 0 40px rgba(0,255,120,0.35)" }}>
+            MIKI<span className="text-green-500">.</span>FACEAPI
           </h1>
-          <p className="text-gray-500 font-mono text-sm tracking-widest">BIOMETRIC NEURAL INTERFACE v4.0</p>
+          <p className="text-white/70 font-mono text-sm tracking-widest">BIOMETRIC NEURAL INTERFACE v4.0</p>
         </header>
 
         <div className="relative group">
@@ -487,25 +602,25 @@ export default function FaceCam() {
             {status === 'idle' && (
               <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between">
                 <div className="flex justify-between items-start opacity-70">
-                  <span className="font-mono text-xs text-cyan-500">REC ● [ {currentTime} ]</span>
+                  <span className="font-mono text-xs text-green-500">REC ● [ {currentTime} ]</span>
                   <div className="flex gap-1">
-                    {[1,2,3].map(i => <div key={i} className="w-1 h-4 bg-cyan-500/50"></div>)}
+                    {[1,2,3].map(i => <div key={i} className="w-1 h-4 bg-green-500/50"></div>)}
                   </div>
                 </div>
                 
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border border-white/10 rounded-full flex items-center justify-center">
-                  <div className={`w-60 h-60 border border-cyan-500/30 rounded-full transition-all duration-300 ${faceDetected ? 'scale-100 opacity-100 border-cyan-400' : 'scale-90 opacity-50'}`}></div>
-                  <div className={`absolute w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent transition-all duration-1000 ${isDetecting ? 'top-1/2 animate-scan' : 'top-0 opacity-0'}`}></div>
+                  <div className={`w-60 h-60 border border-green-500/30 rounded-full transition-all duration-300 ${faceDetected ? 'scale-100 opacity-100 border-green-400' : 'scale-90 opacity-50'}`}></div>
+                  <div className={`absolute w-full h-[1px] bg-gradient-to-r from-transparent via-green-500 to-transparent transition-all duration-1000 ${isDetecting ? 'top-1/2 animate-scan' : 'top-0 opacity-0'}`}></div>
                 </div>
 
                 <div className="flex justify-between items-end opacity-70">
-                  <div className="font-mono text-xs text-gray-400">
+                  <div className="font-mono text-xs text-white/60">
                     LAT: 40.7128° N<br/>LNG: 74.0060° W
                   </div>
                   <div className="text-right">
-                    <div className="text-xs text-cyan-500 font-bold mb-1">{modelsLoaded ? "NEURAL ENGINE: ONLINE" : "INITIALIZING..."}</div>
-                    <div className="h-1 w-24 bg-gray-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-cyan-500 w-[98%]"></div>
+                    <div className="text-xs text-green-500 font-bold mb-1">{modelsLoaded ? "NEURAL ENGINE: ONLINE" : "INITIALIZING..."}</div>
+                    <div className="h-1 w-24 bg-black/60 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500 w-[98%]"></div>
                     </div>
                   </div>
                 </div>
@@ -515,56 +630,56 @@ export default function FaceCam() {
             {status === "scanning" && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-20">
                 <div className="w-64 h-64 relative">
-                  <svg className="w-full h-full animate-spin-slow text-cyan-900" viewBox="0 0 100 100">
+                  <svg className="w-full h-full animate-spin-slow text-green-900" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="10 5" />
                   </svg>
-                  <div className="absolute inset-0 flex items-center justify-center font-mono text-4xl font-bold text-cyan-400">
+                  <div className="absolute inset-0 flex items-center justify-center font-mono text-4xl font-bold text-green-400">
                     {scanProgress}%
                   </div>
                 </div>
-                <p className="mt-4 text-cyan-200 font-mono text-sm tracking-widest animate-pulse">ANALYZING BIOMETRIC DATA...</p>
+                <p className="mt-4 text-green-200 font-mono text-sm tracking-widest animate-pulse">ANALYZING BIOMETRIC DATA...</p>
               </div>
             )}
 
             {status === "error" && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/80 backdrop-blur-md z-30 animate-shake">
-                <div className="p-4 rounded-full border-4 border-red-500 mb-4">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-green-900/40 backdrop-blur-md z-30 animate-shake">
+                <div className="p-4 rounded-full border-4 border-green-500 mb-4">
                   <Icons.Lock />
                 </div>
                 <h2 className="text-3xl font-bold text-white mb-2 tracking-widest">ACCESS DENIED</h2>
-                <p className="font-mono text-red-200">{errorMsg}</p>
+                <p className="font-mono text-green-200">{errorMsg}</p>
               </div>
             )}
 
             {status === "identity_confirmed" && loginData && (
               <div className="absolute inset-0 bg-black/90 backdrop-blur-xl z-40 p-8 flex flex-col items-center justify-center text-center">
-                <div className="w-24 h-24 bg-gradient-to-tr from-cyan-400 to-blue-600 rounded-full p-[2px] mb-6 shadow-[0_0_50px_rgba(0,255,255,0.5)] animate-scale-in">
+                <div className="w-24 h-24 bg-gradient-to-tr from-green-300 to-green-600 rounded-full p-[2px] mb-6 shadow-[0_0_50px_rgba(0,255,120,0.5)] animate-scale-in">
                   <div className="w-full h-full bg-black rounded-full flex items-center justify-center">
                     <Icons.User />
                   </div>
                 </div>
                 
-                <h2 className="text-4xl font-bold text-white mb-1">WELCOME BACK, <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400">{loginData.name}</span></h2>
-                <div className="flex gap-4 mt-6 text-sm font-mono text-gray-400 bg-gray-900/50 p-4 rounded-lg border border-white/5">
+                <h2 className="text-4xl font-bold text-white mb-1">WELCOME BACK, <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-300 to-green-500">{loginData.name}</span></h2>
+                <div className="flex gap-4 mt-6 text-sm font-mono text-white/60 bg-black/50 p-4 rounded-lg border border-white/5">
                   <div className="flex flex-col">
-                    <span className="text-xs uppercase text-gray-600">Confidence</span>
-                    <span className="text-green-400">{loginData.confidence}%</span>
+                    <span className="text-xs uppercase text-white/40">Confidence</span>
+                    <span className="text-green-300">{loginData.confidence}%</span>
                   </div>
-                  <div className="w-[1px] bg-gray-700"></div>
+                  <div className="w-[1px] bg-white/20"></div>
                   <div className="flex flex-col">
-                    <span className="text-xs uppercase text-gray-600">Session ID</span>
-                    <span className="text-cyan-400">{loginData.id}</span>
+                    <span className="text-xs uppercase text-white/40">Session ID</span>
+                    <span className="text-green-300">{loginData.id}</span>
                   </div>
-                  <div className="w-[1px] bg-gray-700"></div>
+                  <div className="w-[1px] bg-white/20"></div>
                   <div className="flex flex-col">
-                    <span className="text-xs uppercase text-gray-600">Security</span>
-                    <span className="text-purple-400">MAXIMUM</span>
+                    <span className="text-xs uppercase text-white/40">Security</span>
+                    <span className="text-green-300">MAXIMUM</span>
                   </div>
                 </div>
 
                 <button 
                   onClick={() => { setStatus("idle"); setIsDetecting(true); playSound("hover"); }}
-                  className="mt-8 px-8 py-3 bg-white text-black font-bold rounded-full hover:bg-cyan-400 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(0,255,255,0.5)]"
+                  className="mt-8 px-8 py-3 bg-white text-black font-bold rounded-full hover:bg-green-400 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(0,255,120,0.5)]"
                 >
                   ENTER DASHBOARD
                 </button>
@@ -579,11 +694,11 @@ export default function FaceCam() {
             onMouseEnter={() => playSound("hover")}
             onClick={() => setIsDetecting(!isDetecting)}
             disabled={!cameraReady || status !== 'idle'}
-            className={`group relative overflow-hidden px-6 py-4 rounded-xl border border-white/10 transition-all duration-300 ${isDetecting ? 'bg-cyan-900/20 border-cyan-500/50' : 'bg-black hover:bg-gray-900'}`}
+            className={`group relative overflow-hidden px-6 py-4 rounded-xl border border-white/10 transition-all duration-300 ${isDetecting ? 'bg-green-900/20 border-green-500/50' : 'bg-black hover:bg-black/80'}`}
           >
             <div className="flex items-center justify-center gap-3">
-              <div className={`w-2 h-2 rounded-full ${isDetecting ? 'bg-cyan-400 animate-ping' : 'bg-gray-600'}`}></div>
-              <span className={`font-mono text-sm tracking-widest ${isDetecting ? 'text-cyan-400' : 'text-gray-400'}`}>
+              <div className={`w-2 h-2 rounded-full ${isDetecting ? 'bg-green-400 animate-ping' : 'bg-white/30'}`}></div>
+              <span className={`font-mono text-sm tracking-widest ${isDetecting ? 'text-green-400' : 'text-white/50'}`}>
                 {isDetecting ? "AR_MESH: ON" : "AR_MESH: OFF"}
               </span>
             </div>
@@ -593,10 +708,10 @@ export default function FaceCam() {
             onMouseEnter={() => playSound("hover")}
             onClick={() => handleCapture("register")}
             disabled={!cameraReady || status !== 'idle'}
-            className="group relative px-6 py-4 bg-black border border-white/10 rounded-xl hover:border-cyan-500/50 transition-all duration-300 overflow-hidden"
+            className="group relative px-6 py-4 bg-black border border-white/10 rounded-xl hover:border-green-500/50 transition-all duration-300 overflow-hidden"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-cyan-900/0 via-cyan-900/20 to-cyan-900/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
-            <div className="flex items-center justify-center gap-2 text-white group-hover:text-cyan-400">
+            <div className="absolute inset-0 bg-gradient-to-r from-green-900/0 via-green-900/20 to-green-900/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+            <div className="flex items-center justify-center gap-2 text-white group-hover:text-green-400">
               <Icons.Scan />
               <span className="font-bold tracking-wider">ENROLL FACE</span>
             </div>
@@ -606,7 +721,7 @@ export default function FaceCam() {
             onMouseEnter={() => playSound("hover")}
             onClick={() => handleCapture("login")}
             disabled={!cameraReady || status !== 'idle' || !registeredUser}
-            className={`group relative px-6 py-4 rounded-xl font-bold tracking-wider transition-all duration-300 ${registeredUser ? 'bg-white text-black hover:shadow-[0_0_40px_rgba(255,255,255,0.4)]' : 'bg-gray-900 text-gray-600 cursor-not-allowed'}`}
+            className={`group relative px-6 py-4 rounded-xl font-bold tracking-wider transition-all duration-300 ${registeredUser ? 'bg-white text-black hover:shadow-[0_0_40px_rgba(255,255,255,0.4)]' : 'bg-black text-white/40 cursor-not-allowed'}`}
           >
              <div className="flex items-center justify-center gap-2">
               <Icons.User />
@@ -615,12 +730,12 @@ export default function FaceCam() {
           </button>
         </div>
 
-        <div className="mt-8 flex items-center gap-6 text-gray-600 font-mono text-xs">
+        <div className="mt-8 flex items-center gap-6 text-white/50 font-mono text-xs">
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${registeredUser ? 'bg-green-500' : 'bg-red-500'}`}></span>
+            <span className={`w-2 h-2 rounded-full ${registeredUser ? 'bg-green-500' : 'bg-white/30'}`}></span>
             DATABASE: {registeredUser ? "1 RECORD" : "EMPTY"}
           </div>
-          <button onClick={resetSystem} className="hover:text-red-500 transition-colors flex items-center gap-1">
+          <button onClick={resetSystem} className="hover:text-green-400 transition-colors flex items-center gap-1">
             <Icons.Refresh /> RESET
           </button>
         </div>
@@ -629,9 +744,9 @@ export default function FaceCam() {
 
       {showNameModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-gray-900/90 border border-white/10 p-8 rounded-2xl shadow-2xl transform transition-all scale-100 ring-1 ring-cyan-500/50">
+          <div className="w-full max-w-md bg-black/90 border border-white/10 p-8 rounded-2xl shadow-2xl transform transition-all scale-100 ring-1 ring-green-500/50">
             <h3 className="text-2xl font-bold text-white mb-2">NEW IDENTITY</h3>
-            <p className="text-gray-400 text-sm mb-6">Biometric signature captured. Assign an alias to this neural pattern.</p>
+            <p className="text-white/60 text-sm mb-6">Biometric signature captured. Assign an alias to this neural pattern.</p>
             
             <input
               autoFocus
@@ -639,21 +754,21 @@ export default function FaceCam() {
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Enter Codename..."
-              className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-lg mb-6"
+              className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-all font-mono text-lg mb-6"
               onKeyDown={(e) => e.key === 'Enter' && confirmRegistration()}
             />
             
             <div className="flex gap-3">
               <button 
                 onClick={() => { setShowNameModal(false); setStatus("idle"); playSound("error"); }}
-                className="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:bg-gray-800 transition-colors font-bold"
+                className="flex-1 py-3 rounded-lg border border-white/20 text-white/60 hover:bg-black/80 transition-colors font-bold"
               >
                 CANCEL
               </button>
               <button 
                 onClick={confirmRegistration}
                 disabled={!nameInput}
-                className="flex-1 py-3 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 rounded-lg bg-green-600 text-white font-bold hover:bg-green-500 transition-colors shadow-lg shadow-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 CONFIRM
               </button>
@@ -706,6 +821,56 @@ export default function FaceCam() {
         @keyframes triScroll {
           0% { transform: translate3d(0, 0, 0); }
           100% { transform: translate3d(-180px, 180px, 0); }
+        }
+
+        /* Welcome scene: ship + meteors */
+        .meteor {
+          position: absolute;
+          background: rgba(0, 255, 100, 0.85);
+          box-shadow: 0 0 12px rgba(0, 255, 100, 0.85);
+          transform: rotate(25deg);
+          border-radius: 2px;
+        }
+        .eye {
+          position: absolute;
+          width: 90px;
+          height: 50px;
+          border: 2px solid rgba(0, 255, 100, 0.9);
+          border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+          box-shadow: 0 0 28px rgba(0, 255, 100, 0.8);
+          background: rgba(0, 255, 100, 0.08);
+          transform: translate(-50%, -50%);
+        }
+        .eye-core {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 30px;
+          height: 30px;
+          transform: translate(-50%, -50%);
+          border-radius: 50%;
+          border: 2px solid rgba(0, 255, 100, 0.9);
+          box-shadow: 0 0 18px rgba(0, 255, 100, 0.8);
+          background: rgba(0, 255, 100, 0.15);
+        }
+        .eye-pupil {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 10px;
+          height: 10px;
+          transform: translate(-50%, -50%);
+          border-radius: 50%;
+          background: rgba(0, 255, 100, 0.95);
+          box-shadow: 0 0 10px rgba(0, 255, 100, 0.95);
+        }
+        .laser {
+          position: absolute;
+          width: 120px;
+          height: 2px;
+          background: rgba(0, 255, 100, 0.9);
+          box-shadow: 0 0 12px rgba(0, 255, 100, 0.9);
+          opacity: 0.9;
         }
       `}</style>
     </div>
